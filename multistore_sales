@@ -1,0 +1,88 @@
+# Time Series Forecasting for Multi-Store Sales using ARIMA, Prophet, and LSTM
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+# For ARIMA
+from statsmodels.tsa.arima.model import ARIMA
+
+# For Prophet
+from prophet import Prophet
+
+# For LSTM
+from sklearn.preprocessing import MinMaxScaler
+from keras.models import Sequential
+from keras.layers import LSTM, Dense
+
+# Load sample data (replace with your CSV path)
+df = pd.read_csv('sales_data.csv', parse_dates=['date'])
+df = df[['date', 'store', 'sales']]
+
+# Choose a store for demonstration
+store_id = 1
+df_store = df[df['store'] == store_id].set_index('date').resample('D').sum().fillna(0)
+
+# ---------------------- ARIMA Model ----------------------
+model_arima = ARIMA(df_store['sales'], order=(5, 1, 0))
+result_arima = model_arima.fit()
+forecast_arima = result_arima.forecast(steps=30)
+
+plt.figure(figsize=(10, 4))
+df_store['sales'].plot(label='Actual')
+forecast_arima.plot(label='ARIMA Forecast')
+plt.title('ARIMA Forecast')
+plt.legend()
+plt.show()
+
+# ---------------------- Prophet Model ----------------------
+df_prophet = df_store.reset_index().rename(columns={'date': 'ds', 'sales': 'y'})
+model_prophet = Prophet()
+model_prophet.fit(df_prophet)
+
+future = model_prophet.make_future_dataframe(periods=30)
+forecast = model_prophet.predict(future)
+
+model_prophet.plot(forecast)
+plt.title('Prophet Forecast')
+plt.show()
+
+# ---------------------- LSTM Model ----------------------
+data = df_store['sales'].values.reshape(-1, 1)
+scaler = MinMaxScaler()
+data_scaled = scaler.fit_transform(data)
+
+# Create sequences
+def create_sequences(data, seq_len):
+    X, y = [], []
+    for i in range(len(data) - seq_len):
+        X.append(data[i:i+seq_len])
+        y.append(data[i+seq_len])
+    return np.array(X), np.array(y)
+
+seq_len = 30
+X, y = create_sequences(data_scaled, seq_len)
+
+# Train/test split
+split = int(len(X) * 0.8)
+X_train, X_test = X[:split], X[split:]
+y_train, y_test = y[:split], y[split:]
+
+# Build LSTM model
+model_lstm = Sequential()
+model_lstm.add(LSTM(50, return_sequences=False, input_shape=(seq_len, 1)))
+model_lstm.add(Dense(1))
+model_lstm.compile(optimizer='adam', loss='mse')
+
+model_lstm.fit(X_train, y_train, epochs=10, batch_size=16, verbose=1)
+
+# Predict
+preds = model_lstm.predict(X_test)
+preds_inverse = scaler.inverse_transform(preds)
+y_test_inverse = scaler.inverse_transform(y_test)
+
+plt.plot(y_test_inverse, label='Actual')
+plt.plot(preds_inverse, label='LSTM Forecast')
+plt.legend()
+plt.title('LSTM Forecast')
+plt.show()
